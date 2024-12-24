@@ -1,1 +1,1 @@
-Tring fast forward merge
+change in master branch 
