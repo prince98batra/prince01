@@ -1,0 +1,66 @@
+#!/bin/bash
+
+usage() {
+    echo "Usage: $0 -u <repo_url> -d <days>"
+    echo "Options:"
+    echo "  -u <repo_url>  URL of the Git repository"
+    echo "  -d <days>      Number of days for which to generate the report"
+    exit 1
+}
+
+if [ $# -lt 4 ]; then
+    usage
+fi
+
+while getopts "u:d:" opt; do
+    case $opt in
+        u) repo_url=$OPTARG ;;
+        d) days=$OPTARG ;;
+        *) usage ;;
+    esac
+done
+
+# Define the output file location in the home directory
+output_file="$HOME/commit_report.csv"
+
+# Clone the repository into a temporary directory
+temp_dir=$(mktemp -d)
+git clone --quiet "$repo_url" "$temp_dir"
+if [ $? -ne 0 ]; then
+    echo "Failed to clone repository: $repo_url"
+    exit 1
+fi
+
+cd "$temp_dir" || exit
+
+# Date range for commits
+since_date=$(date -d "-$days days" +"%Y-%m-%d")
+
+# CSV Header
+echo "Commit ID,Author Name,Author Email,Commit Message,Changed Files,Valid Commit" > "$output_file"
+
+# Generate the report
+git log --since="$since_date" --pretty=format:'%H,%an,%ae,%s' --name-only | awk -v RS= -v FS="\n" '
+{
+    commit_id=$1; author_name=$2; author_email=$3; commit_message=$4;
+    changed_files="";
+    valid_commit="No";
+
+    # Check if commit message matches the pattern JIRA-XXXX:
+    if (commit_message ~ /^JIRA-[0-9]+:/) {
+        valid_commit="Yes";
+    }
+
+    # Collect all changed files
+    for (i=5; i<=NF; i++) {
+        changed_files = (changed_files == "" ? $i : changed_files "|"$i);
+    }
+
+    print commit_id "," author_name "," author_email "," commit_message "," changed_files "," valid_commit;
+}' >> "$output_file"
+
+# Cleanup temporary directory
+cd - > /dev/null || exit
+rm -rf "$temp_dir"
+
+echo "Commit report generated: $output_file"
